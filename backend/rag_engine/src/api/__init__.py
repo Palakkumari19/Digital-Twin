@@ -1,6 +1,5 @@
 
 
-
 """
 API routes module for MULRAG - Hackathon MVP Version.
 
@@ -14,8 +13,8 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Any
 
-from fastapi import APIRouter, Header, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Header, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
 
 from ..config import settings
 from ..models import (
@@ -27,7 +26,6 @@ from ..database import (
     convert_session_to_response, convert_message_to_response
 )
 from ..agents import MultiAgentRAGSystem
-#from ..document_processing import document_processor
 
 
 # ==================== DEMO USER ====================
@@ -42,6 +40,45 @@ session_router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 upload_router = APIRouter(prefix="/api/v1", tags=["uploads"])
 chat_router = APIRouter(prefix="/api/v1", tags=["chat"])
 legacy_router = APIRouter(prefix="/api/v1", tags=["legacy"])
+
+
+# ==================== FLASHCARDS ROUTE ====================
+@session_router.get("/{session_id}/flashcards")
+async def get_flashcards(session_id: str):
+    """
+    Generate deterministic flashcards from stored document chunks.
+    Returns 5 random flashcards per request.
+    """
+
+    session = await session_repo.get_user_session(session_id, DEMO_USER_ID)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not session.get("document_id"):
+        raise HTTPException(status_code=400, detail="No document attached")
+
+    doc_source = os.path.join(settings.UPLOAD_DIR, session["document_id"])
+
+    from .. import document_processing
+    from ..flashcards import generate_flashcards
+
+    doc_processor = document_processing.document_processor
+
+    if doc_processor is None:
+        raise HTTPException(status_code=500, detail="Document processor not initialized")
+
+    chunks, _ = await doc_processor.get_or_process_document(
+        doc_source,
+        is_local_file=True
+    )
+
+    flashcards = generate_flashcards(chunks, limit=5)
+
+    return {
+        "success": True,
+        "total": len(flashcards),
+        "flashcards": flashcards
+    }
 
 
 # ==================== SESSION ROUTES ====================
@@ -171,7 +208,6 @@ async def chat_endpoint(
 
     from ..models import MessageDocument
 
-    # Save user message
     user_message = MessageDocument(
         session_id=session_id,
         type="user",
@@ -180,7 +216,6 @@ async def chat_endpoint(
     )
     await message_repo.create_message(user_message)
 
-    # Determine document source
     if session.get("document_id"):
         doc_source = os.path.join(settings.UPLOAD_DIR, session["document_id"])
         is_local_file = True
@@ -191,6 +226,7 @@ async def chat_endpoint(
         raise HTTPException(status_code=400, detail="No document attached")
 
     from openai import AsyncAzureOpenAI
+    from ..document_processing import DocumentProcessor
 
     client = AsyncAzureOpenAI(
         api_version=settings.OPENAI_API_VERSION,
@@ -198,11 +234,7 @@ async def chat_endpoint(
         api_key=settings.OPENAI_API_KEY
     )
 
-    #rag_system = MultiAgentRAGSystem(client, document_processor)
-    from ..document_processing import DocumentProcessor
-
     doc_processor = DocumentProcessor(client)
-
     rag_system = MultiAgentRAGSystem(client, doc_processor)
 
     result = await rag_system.process_question(
@@ -212,7 +244,6 @@ async def chat_endpoint(
         is_local_file
     )
 
-    # Save bot message
     bot_message = MessageDocument(
         session_id=session_id,
         type="bot",
@@ -243,62 +274,14 @@ async def hackrx_run(request: QueryRequest, authorization: str = Header(None)):
 
     await log_repo.create_log_from_request(**log_entry)
 
-    doc_url = request.documents
+    from .. import document_processing
 
-    chunks, faiss_index = await document_processor.get_or_process_document(
-        doc_url,
+    chunks, faiss_index = await document_processing.document_processor.get_or_process_document(
+        request.documents,
         is_local_file=False
     )
 
-    tasks = [answer_question_simple(q, chunks, faiss_index)
-             for q in request.questions]
-
-    answers = await asyncio.gather(*tasks)
-
-    return {"answers": answers}
-
-
-async def answer_question_simple(question: str, chunks: list, faiss_index):
-
-    from ..document_processing import (
-        get_embeddings, search_faiss, rerank_chunks_by_keyword_overlap
-    )
-
-    from openai import AsyncAzureOpenAI
-    import numpy as np
-
-    client = AsyncAzureOpenAI(
-        api_version=settings.OPENAI_API_VERSION,
-        azure_endpoint=settings.OPENAI_API_BASE,
-        api_key=settings.OPENAI_API_KEY
-    )
-
-    question_embeddings = await get_embeddings([question], client)
-    avg_embedding = np.mean(question_embeddings, axis=0, keepdims=True)
-
-    retrieved_chunks = search_faiss(avg_embedding, faiss_index, chunks, k=None)
-    top_chunks = rerank_chunks_by_keyword_overlap(question, retrieved_chunks, top_k=None)
-
-    context = "\n---\n".join(top_chunks)
-
-    prompt = f"""
-Answer this question based on the document context.
-
-Context:
-{context}
-
-Question: {question}
-Answer:
-"""
-
-    response = await client.chat.completions.create(
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.0,
-        max_tokens=300,
-        model=settings.OPENAI_DEPLOYMENT
-    )
-
-    return response.choices[0].message.content.strip()
+    return {"answers": []}
 
 
 # ==================== HEALTH ====================

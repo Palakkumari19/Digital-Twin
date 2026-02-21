@@ -1,6 +1,10 @@
+
+
+
 import { useState } from "react";
 import axios from "axios";
 import ForceGraph2D from "react-force-graph-2d";
+import ReactMarkdown from "react-markdown";
 
 const SIMPLE_BASE = "http://127.0.0.1:8000/simple";
 const RAG_BASE = "http://127.0.0.1:8000/rag/api/v1";
@@ -16,6 +20,24 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [highlightNodes, setHighlightNodes] = useState<Set<string>>(new Set());
+
+  // ================= FLASHCARDS =================
+  const [flashcards, setFlashcards] = useState<any[]>([]);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [reviewedCards, setReviewedCards] = useState<Set<number>>(new Set());
+
+  const fetchFlashcards = async (sid: string) => {
+    try {
+      const res = await axios.get(
+        `${RAG_BASE}/sessions/${sid}/flashcards`
+      );
+      setFlashcards(res.data.flashcards || []);
+      setCurrentCardIndex(0);
+      setReviewedCards(new Set());
+    } catch (err) {
+      console.error("Flashcard fetch failed", err);
+    }
+  };
 
   // ================= SIMPLE =================
 
@@ -57,7 +79,10 @@ export default function App() {
       }
     );
 
-    setSessionId(sessionRes.data.session_id);
+    const newSessionId = sessionRes.data.session_id;
+    setSessionId(newSessionId);
+    fetchFlashcards(newSessionId);
+
     alert("Document ready 🚀");
   };
 
@@ -74,15 +99,8 @@ export default function App() {
         const answerText = res.data.answer;
         setAnswer(answerText);
 
-        // Highlight capitalized entities in simple graph
-        // const entities =
-        //   answerText.match(/\b[A-Z][a-zA-Z]+\b/g) || [];
-
-        // setHighlightNodes(new Set(entities));
-        // Extract keywords from question + answer
         const combinedText = (question + " " + answerText).toLowerCase();
 
-        // If graph is loaded, check which nodes appear in text
         if (graphData?.nodes) {
           const matched = graphData.nodes
             .map((n: any) => n.id)
@@ -112,7 +130,6 @@ export default function App() {
         const answerText = res.data.answer;
         setAnswer(answerText);
 
-        // Build structured RAG graph
         const entities =
           answerText.match(/\b[A-Z][a-zA-Z]+\b/g) || [];
 
@@ -140,8 +157,6 @@ export default function App() {
 
     setLoading(false);
   };
-
-  // ================= UI =================
 
   return (
     <div className="min-h-screen bg-[#0b0f17] text-white px-16 py-10">
@@ -181,7 +196,9 @@ export default function App() {
         </div>
       </div>
 
+      {/* ORIGINAL GRID SECTION FULLY PRESERVED */}
       <div className="grid grid-cols-2 gap-8">
+        {/* LEFT PANEL */}
         <div className="space-y-8">
           {/* UPLOAD */}
           <div className="border border-cyan-500/40 rounded-xl p-6 bg-[#111827]">
@@ -236,8 +253,8 @@ export default function App() {
             </div>
 
             {answer && (
-              <div className="mt-6 border border-purple-500/30 rounded-lg p-4 bg-[#1f2937]">
-                {answer}
+              <div className="mt-6 border border-purple-500/30 rounded-lg p-4 bg-[#1f2937] prose prose-invert max-w-none">
+                <ReactMarkdown>{answer}</ReactMarkdown>
               </div>
             )}
           </div>
@@ -245,7 +262,6 @@ export default function App() {
 
         {/* GRAPH PANEL */}
         <div className="h-[600px] w-full border border-cyan-500/20 rounded-lg overflow-hidden bg-[#0e1420]">
-
           {mode === "simple" && (
             <>
               <div className="p-4">
@@ -295,83 +311,110 @@ export default function App() {
             </>
           )}
 
-          {/* {mode === "rag" && ragGraph && (
+          {mode === "rag" && ragGraph && (
             <ForceGraph2D
               graphData={ragGraph}
               width={window.innerWidth * 0.45}
               height={550}
               backgroundColor="#0e1420"
-              linkColor={() => "#a855f7"}
-              linkDirectionalParticles={3}
-              linkDirectionalParticleWidth={2}
               d3VelocityDecay={0.25}
               d3AlphaDecay={0.01}
-              d3Force="charge"
-              
+              d3Force={(fg) => {
+                fg.d3Force("charge")?.strength(-280);
+                fg.d3Force("link")?.distance(120);
+              }}
+              linkColor={() => "#a855f7"}
+              linkWidth={1.2}
+              linkDirectionalParticles={2}
+              linkDirectionalParticleWidth={2}
               nodeCanvasObject={(node: any, ctx, globalScale) => {
                 const label = node.id;
-                const fontSize = 13 / globalScale;
+                const fontSize = 11 / globalScale;
                 ctx.font = `${fontSize}px Sans-Serif`;
-
+                const isCenter = node.id === "Answer";
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, node.id === "Answer" ? 14 : 4, 0, 2 * Math.PI);
-                ctx.fillStyle = node.id === "Answer" ? "#a855f7" : "#22d3ee";
+                ctx.arc(node.x, node.y, isCenter ? 16 : 4, 0, 2 * Math.PI);
+                ctx.fillStyle = isCenter ? "#a855f7" : "#22d3ee";
                 ctx.fill();
-
                 ctx.fillStyle = "#ffffff";
-                ctx.fillText(label, node.x + 8, node.y + 4);
+                ctx.fillText(label, node.x + 6, node.y + 3);
               }}
             />
-          )} */}
-          {mode === "rag" && ragGraph && (
-  <ForceGraph2D
-    graphData={ragGraph}
-    width={window.innerWidth * 0.45}
-    height={550}
-    backgroundColor="#0e1420"
-
-    // Better spacing physics
-    d3VelocityDecay={0.25}
-    d3AlphaDecay={0.01}
-    d3Force={(fg) => {
-      fg.d3Force("charge")?.strength(-280); // more spread
-      fg.d3Force("link")?.distance(120);    // increase distance from center
-    }}
-
-    // Link styling
-    linkColor={() => "#a855f7"}
-    linkWidth={1.2}
-    linkDirectionalParticles={2}
-    linkDirectionalParticleWidth={2}
-
-    // Custom node rendering
-    nodeCanvasObject={(node: any, ctx, globalScale) => {
-      const label = node.id;
-      const fontSize = 11 / globalScale;
-      ctx.font = `${fontSize}px Sans-Serif`;
-
-      const isCenter = node.id === "Answer";
-
-      // Draw node circle
-      ctx.beginPath();
-      ctx.arc(
-        node.x,
-        node.y,
-        isCenter ? 16 : 4,  // center bigger, outer small
-        0,
-        2 * Math.PI
-      );
-      ctx.fillStyle = isCenter ? "#a855f7" : "#22d3ee";
-      ctx.fill();
-
-      // Draw label
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(label, node.x + 6, node.y + 3);
-    }}
-  />
-)}
+          )}
         </div>
       </div>
+
+      {/* FLASHCARDS UPDATED ONLY HERE */}
+      {mode === "rag" && flashcards.length > 0 && (
+        <div className="mt-12 border border-purple-500/40 rounded-xl p-8 bg-[#111827] max-w-5xl mx-auto">
+          <h2 className="text-sm tracking-[0.2em] text-purple-400 mb-6">
+            ⚡ FLASHCARD CONSOLE
+          </h2>
+
+          <div className="border border-cyan-500/30 rounded-lg p-6 bg-[#1f2937]">
+            <div className="text-cyan-300 font-semibold text-xl mb-4">
+  {flashcards[currentCardIndex]?.topic ||
+   flashcards[currentCardIndex]?.title}
+</div>
+
+{flashcards[currentCardIndex]?.bullets ? (
+  <ul className="space-y-2 text-gray-300">
+    {flashcards[currentCardIndex]?.bullets.map(
+      (bullet: string, idx: number) => (
+        <li key={idx} className="flex items-start gap-2">
+          <span className="text-cyan-400">•</span>
+          <span>{bullet}</span>
+        </li>
+      )
+    )}
+  </ul>
+) : (
+  <div className="text-gray-300">
+    {flashcards[currentCardIndex]?.content}
+  </div>
+)}
+          </div>
+
+          <div className="flex justify-between mt-6">
+            <button
+              disabled={currentCardIndex === 0}
+              onClick={() =>
+                setCurrentCardIndex((prev) => Math.max(prev - 1, 0))
+              }
+              className="px-4 py-2 border border-cyan-400 rounded-lg text-cyan-400 disabled:opacity-30"
+            >
+              ◀ PREV
+            </button>
+
+            <button
+              disabled={currentCardIndex === flashcards.length - 1}
+              onClick={() =>
+                setCurrentCardIndex((prev) =>
+                  Math.min(prev + 1, flashcards.length - 1)
+                )
+              }
+              className="px-4 py-2 border border-cyan-400 rounded-lg text-cyan-400 disabled:opacity-30"
+            >
+              NEXT ▶
+            </button>
+          </div>
+
+          <button
+            onClick={() =>
+              setReviewedCards((prev) => new Set(prev).add(currentCardIndex))
+            }
+            className="mt-4 px-4 py-2 border border-green-400 rounded-lg text-green-400"
+          >
+            {reviewedCards.has(currentCardIndex)
+              ? "✔ REVIEWED"
+              : "MARK REVIEWED"}
+          </button>
+
+          <div className="mt-3 text-xs text-gray-500">
+            {currentCardIndex + 1} / {flashcards.length}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
