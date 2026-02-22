@@ -25,6 +25,9 @@ export default function App() {
   const [flashcards, setFlashcards] = useState<any[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [reviewedCards, setReviewedCards] = useState<Set<number>>(new Set());
+//============quiz==================
+const [quizData, setQuizData] = useState<any[] | null>(null);
+const [revealedAnswers, setRevealedAnswers] = useState<Set<number>>(new Set());
 
   const fetchFlashcards = async (sid: string) => {
     try {
@@ -39,6 +42,20 @@ export default function App() {
     }
   };
 
+const generateQuiz = async () => {
+  if (!sessionId) return;
+
+  try {
+    const res = await axios.post(
+      `${RAG_BASE}/sessions/${sessionId}/generate-quiz`
+    );
+
+    setQuizData(res.data.quiz || []);
+    setRevealedAnswers(new Set());
+  } catch (err) {
+    console.error("Quiz generation failed", err);
+  }
+};
   // ================= SIMPLE =================
 
   const uploadNotes = async () => {
@@ -415,6 +432,58 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* ================= QUIZ SECTION ================= */}
+{mode === "rag" && (
+  <div className="mt-12 border border-green-500/40 rounded-xl p-8 bg-[#111827] max-w-5xl mx-auto">
+    
+    <div className="flex justify-between items-center mb-6">
+      <h2 className="text-sm tracking-[0.2em] text-green-400">
+        🧠 AUTO-GENERATED QUIZ
+      </h2>
+
+      <button
+        onClick={generateQuiz}
+        className="text-xs border border-green-400 px-3 py-1 rounded-lg text-green-400 hover:bg-green-500/20 transition"
+      >
+        GENERATE QUIZ
+      </button>
+    </div>
+
+    {quizData && (
+  <div className="space-y-6">
+    {quizData.map((item: any, index: number) => (
+      <div
+        key={index}
+        className="border border-green-500/30 rounded-lg p-4 bg-[#1f2937]"
+      >
+        <div className="text-green-300 font-medium mb-3">
+          {item.question}
+        </div>
+
+        <button
+          onClick={() =>
+            setRevealedAnswers((prev) => {
+              const newSet = new Set(prev);
+              newSet.add(index);
+              return newSet;
+            })
+          }
+          className="text-xs border border-green-400 px-3 py-1 rounded-lg text-green-400 hover:bg-green-500/20 transition"
+        >
+          Reveal Answer
+        </button>
+
+        {revealedAnswers.has(index) && (
+          <div className="mt-3 text-gray-300">
+            {item.answer}
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+)}
+  </div>
+)}
     </div>
   );
 }
