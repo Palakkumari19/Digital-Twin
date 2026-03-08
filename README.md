@@ -89,14 +89,6 @@ Digital Memory Twin shifts knowledge systems from passive consumption to
 structured understanding and recall. By combining retrieval, visualization, and
 learning workflows, it transforms notes into an interactive memory companion.
 
-## Project Vision
-
-Learn by active recall, not passive reading.
-
-## Hackathon Note
-This project focuses on delivering a strong, explainable core within limited
-time. The architecture is intentionally modular, enabling seamless expansion
-beyond the hackathon.
 
 
 
